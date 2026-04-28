@@ -1,96 +1,113 @@
 # -*- coding: utf-8 -*-
 
-from typing import List, Dict
+from typing import Any, List, Dict
 
-from kivy.lang import Builder
-from kivy.uix.widget import Widget
+from kivy.lang.builder import Builder
 from kivymd.app import MDApp
-from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.menu import MDDropdownMenu
-from kivymd.uix.textfield import MDTextField
+from kivymd.uix.boxlayout import MDBoxLayout
 
 
 Builder.load_string('''
+<_BaseChoiceField>:
+    size_hint: 1, None
+    height: dp(50)
+
+
 <ChoiceSelectField>:
-    id: container
+    MDTextField:
+        id: txt_field
+        hint_text: root.title
+        on_text: root.open_menu()
+
+
+<ChoiceFilterSelectField>:
+    MDTextField:
+        id: txt_field
+        hint_text: root.title
+        on_text: root.open_menu()
 ''')
 
 
-class ChoiceSelectField(MDBoxLayout):
-    def __init__(self, content: Widget, items: List[Dict], **options):
-        '''
-        Поле выбора одного варианта из множества items в открываемом по клику выпадающему меню.
-
-        :param content: отображаемая часть.
-        :param items: список словарей для отображения.
-            items = [{
-                'text': '...',
-                'viewclass': 'OneLineListItem',
-                'on_release': <Callable>
-            }, ...]
-        :param **options: аргументы MDBoxLayout для родительского класса.
-        '''
-        self.content = content
-        self.items = items
+class _BaseChoiceField(MDBoxLayout):
+    def __init__(self, title: str, *args, **kwargs):
+        self.title = title
+        super().__init__(*args, **kwargs)
+        self.menu_items = []
+        self.menu = MDDropdownMenu(
+            caller=self.ids.txt_field,
+            items=self.menu_items,
+            width_mult=4)
+        self.menu.bind(on_dismiss=lambda *_: self.dismiss_menu())
         self.is_open = False
 
-        super().__init__(**options)
+    def add_menu_items(self, items: List[Dict[str, Any]]) -> None:
+        self.menu.items.extend(items)
 
-        self.add_widget(content)
+    def update_menu_items(self, items: List[Dict[str, Any]]) -> None:
+        self.menu.items = items
 
-    def bind_caller(self, caller: Widget, position: str='bottom', width_mult: int=4) -> None:
-        '''
-        Привязать событие открытия выпадающего меню.
-
-        :param caller: виждет открывающий выпадающее меню.
-        :param position: позиция всплывающего меню (auto, center, bottom).
-        :param width_mult: ширина меню выбора.
-        '''
-        self.menu = MDDropdownMenu(
-            caller=caller,
-            items=self.items,
-            width_mult=width_mult
-        )
-        self.menu.bind(on_dismiss=self.close_menu)
-
-    def open_menu(self, *_) -> None:
-        ''' Открыть меню '''
+    def open_menu(self) -> None:
         if not hasattr(self, 'menu'):
-            return
-
+            raise AttributeError('The MDDropdownMenu class was not pre-initialized. To resolve this, run the add_menu_items method before running the open_menu method.')
         if self.is_open:
-            self.menu.dismiss()
-
+            self.dismiss_menu()
         self.menu.open()
         self.is_open = True
 
-    def close_menu(self, *_) -> None:
-        if self.is_open:
-            self.menu.dismiss()
+    def dismiss_menu(self) -> None:
+        if not hasattr(self, 'menu'):
+            raise AttributeError('The MDDropdownMenu class was not pre-initialized. To resolve this, run the add_menu_items method before running the open_menu method.')
+        self.menu.dismiss()
         self.is_open = False
+
+    def menu_callback(self, text_item: str) -> None:
+        self.ids.txt_field.text = text_item
+        self.dismiss_menu()
+
+
+class ChoiceSelectField(_BaseChoiceField):
+    pass
+
+
+class ChoiceFilterSelectField(_BaseChoiceField):
+    def add_menu_items(self, items: List[Dict[str, Any]]) -> None:
+        self.all_menu_items = items
+        super().add_menu_items(items)
+
+    def open_menu(self) -> None:
+        txt = self.ids.txt_field.text.lower()
+        items = list(filter(
+            lambda item: txt in item['text'].lower(),
+            self.all_menu_items))
+
+        self.update_menu_items(items)
+        super().open_menu()
 
 
 class TestApp(MDApp):
     def build(self):
+        all_items = ChoiceSelectField(title='Test ChoiceSelectField')
+        menu_items = [{
+                'text': f'Item #{i}',
+                'viewclass': 'OneLineListItem',
+                'on_release': lambda item=f'Item #{i}': all_items.menu_callback(item)
+            } for i in range(10)]
+        all_items.add_menu_items(menu_items)
 
-        def set_text(instance: MDTextField, text: str) -> None:
-            instance.text = text
+        filtered_items = ChoiceFilterSelectField(title='Test ChoiceFilterSelectField')
+        menu_items = [{
+                'text': f'Item #{i}',
+                'viewclass': 'OneLineListItem',
+                'on_release': lambda item=f'Item #{i}': filtered_items.menu_callback(item)
+            } for i in range(10)]
+        filtered_items.add_menu_items(menu_items)
 
-        txt_field = MDTextField(hint_text='Enter text')
-
-        choice = ChoiceSelectField(
-            content=txt_field,
-            items=[
-                {
-                    'text': f'Item #{i}',
-                    'viewclass': 'OneLineListItem',
-                    'on_release': lambda choice=f"Item #{i}": set_text(txt_field, choice)
-                }
-                for i in range(50)
-            ])
-        choice.bind_caller(caller=txt_field)
-        txt_field.bind(text=choice.open_menu)
-        return choice
+        boxl = MDBoxLayout(orientation='vertical')
+        boxl.add_widget(all_items)
+        boxl.add_widget(filtered_items)
+        boxl.add_widget(MDBoxLayout())
+        return boxl
 
 
 if __name__ == '__main__':
